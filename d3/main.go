@@ -3,62 +3,56 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
 //go:embed in.txt
 var data string
 
-type numPos struct {
+type Num struct {
 	start int
 	end   int
 	row   int
+	val   int
 }
 
-func isCoordFilled(row, col int, lines []string) bool {
-	if row < 0 || col < 0 || row >= len(lines) || col >= len(lines[0]) {
-		return false
+type Pos struct {
+	row int
+	col int
+}
+
+func (n Num) neighbors(lines []string) []Pos {
+	allNeighbors := []Pos{}
+	for i := n.start - 1; i <= n.end+1; i++ {
+		allNeighbors = append(allNeighbors, Pos{n.row - 1, i})
+		allNeighbors = append(allNeighbors, Pos{n.row + 1, i})
 	}
-	return lines[row][col] != '.' && !unicode.IsDigit(rune(lines[row][col]))
-}
+	allNeighbors = append(allNeighbors, Pos{n.row, n.start - 1})
+	allNeighbors = append(allNeighbors, Pos{n.row, n.end + 1})
 
-func isPartNum(num numPos, lines []string) bool {
-	for i := num.start - 1; i <= num.end+1; i++ {
-		if isCoordFilled(num.row-1, i, lines) {
-			return true
+	validNeighbors := []Pos{}
+	for _, n := range allNeighbors {
+		if 0 <= n.row && n.row < len(lines) && 0 <= n.col && n.col < len(lines[0]) {
+			validNeighbors = append(validNeighbors, n)
 		}
-		if isCoordFilled(num.row+1, i, lines) {
-			return true
-		}
 	}
-	if isCoordFilled(num.row, num.start-1, lines) {
-		return true
-	}
-	if isCoordFilled(num.row, num.end+1, lines) {
-		return true
-	}
-	return false
+	return validNeighbors
 }
 
-func getNums(lines []string) []numPos {
-	nums := []numPos{}
+func getNums(lines []string) []Num {
+	nums := []Num{}
+	r := regexp.MustCompile(`\d+`)
 	for row, line := range lines {
-		inNum := false
-		start := -1
-		for col, r := range line {
-			if !inNum && unicode.IsDigit(r) {
-				inNum = true
-				start = col
-			} else if inNum && !unicode.IsDigit(r) {
-				nums = append(nums, numPos{row: row, start: start, end: col - 1})
-				inNum = false
-				start = -1
+		matches := r.FindAllStringIndex(line, -1)
+		for _, match := range matches {
+			val, err := strconv.Atoi(lines[row][match[0]:match[1]])
+			if err != nil {
+				panic(err)
 			}
-		}
-		if inNum {
-			nums = append(nums, numPos{row: row, start: start, end: len(line) - 1})
+			pos := Num{row: row, start: match[0], end: match[1] - 1, val: val}
+			nums = append(nums, pos)
 		}
 	}
 	return nums
@@ -70,72 +64,37 @@ func part1() {
 
 	total := 0
 	for _, n := range nums {
-		if isPartNum(n, lines) {
-			res, err := strconv.Atoi(lines[n.row][n.start : n.end+1])
-			if err != nil {
-				panic(err)
+		for _, neigh := range n.neighbors(lines) {
+			if lines[neigh.col][neigh.row] != '.' {
+				total += n.val
+				break
 			}
-			// fmt.Println(res)
-			total += res
 		}
 	}
 	fmt.Println(total)
 }
 
-type gearPos struct {
-	row int
-	col int
-}
-
-type gearStats struct {
-	count int
-	ratio int
-}
-
-func updateGears(row, col int, lines []string, gears map[gearPos]gearStats, val int) {
-	if row < 0 || col < 0 || row >= len(lines) || col >= len(lines[0]) {
-		return
-	}
-	if lines[row][col] != '*' {
-		return
-	}
-	pos := gearPos{row: row, col: col}
-	gearStats, found := gears[pos]
-	gearStats.count += 1
-	if !found {
-		gearStats.ratio = val
-	} else {
-		gearStats.ratio *= val
-	}
-	gears[pos] = gearStats
-}
-
-func getGears(lines []string, nums []numPos) map[gearPos]gearStats {
-	gears := map[gearPos]gearStats{}
+func getGearParts(lines []string, nums []Num) map[Pos][]int {
+	gearParts := map[Pos][]int{}
 	for _, num := range nums {
-		val, err := strconv.Atoi(lines[num.row][num.start : num.end+1])
-		if err != nil {
-			panic(err)
+		for _, n := range num.neighbors(lines) {
+			if lines[n.row][n.col] == '*' {
+				gearParts[n] = append(gearParts[n], num.val)
+			}
 		}
-		for i := num.start - 1; i <= num.end+1; i++ {
-			updateGears(num.row-1, i, lines, gears, val)
-			updateGears(num.row+1, i, lines, gears, val)
-		}
-		updateGears(num.row, num.start-1, lines, gears, val)
-		updateGears(num.row, num.end+1, lines, gears, val)
 	}
-	return gears
+	return gearParts
 }
 
 func part2() {
 	lines := strings.Split(strings.TrimSpace(data), "\n")
 	nums := getNums(lines)
-	gears := getGears(lines, nums)
+	gearParts := getGearParts(lines, nums)
 
 	total := 0
-	for _, stats := range gears {
-		if stats.count == 2 {
-			total += stats.ratio
+	for _, parts := range gearParts {
+		if len(parts) == 2 {
+			total += parts[0] * parts[1]
 		}
 	}
 	fmt.Println(total)
